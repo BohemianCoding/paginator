@@ -33,7 +33,8 @@ defmodule Paginator.Config do
       before_values: Cursor.decode(opts[:before]),
       cursor_fields: opts[:cursor_fields],
       include_total_count: opts[:include_total_count] || false,
-      total_count_primary_key_field: opts[:total_count_primary_key_field] || @default_total_count_primary_key_field,
+      total_count_primary_key_field:
+        opts[:total_count_primary_key_field] || @default_total_count_primary_key_field,
       limit: limit(opts),
       sort_direction: opts[:sort_direction] || :asc,
       total_count_limit: opts[:total_count_limit] || @default_total_count_limit
