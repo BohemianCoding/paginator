@@ -18,17 +18,17 @@ defmodule Paginator.Ecto.Query do
   end
 
   defp filter_values(query, cursor_fields, values, operator) do
-    IO.inspect(values, label: "values")
+
     sorts =
       cursor_fields
-      |> IO.inspect
+
       |> Enum.zip(values)
-      |> IO.inspect
+
       |> Enum.reject(fn val -> match?({_column, nil}, val) end)
 
     dynamic_sorts =
       sorts
-      |> IO.inspect
+
       |> Enum.with_index()
       # Two anonymous fns, the first needs a binding name in the cursor fields
       # it uses this name to get the column for the named binding

@@ -316,10 +316,10 @@ defmodule PaginatorTest do
       payments: {_p1, _p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, _p12}
     } do
 
-        q=payments_by_customer_name()
-        IO.inspect(Map.from_struct(q))
-        position = Map.get(q.aliases, :customer) |> IO.inspect
-        %Page{entries: entries, metadata: metadata} = q |> Repo.paginate(
+
+
+
+        %Page{entries: entries, metadata: metadata} = payments_by_customer_name() |> Repo.paginate(
           cursor_fields: [{:payments, :id}, {:customer, :name}],
           sort_direction: :asc,
           before: encode_cursor([p11.id, p11.customer.name]),

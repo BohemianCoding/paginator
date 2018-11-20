@@ -96,9 +96,7 @@ defmodule Paginator do
     paginated_entries = paginate_entries(sorted_entries, config)
     {total_count, total_count_cap_exceeded} = total_count(queryable, config, repo, repo_opts)
 
-    IO.inspect(paginated_entries)
-    IO.inspect(sorted_entries)
-    IO.inspect(config)
+
     %Page{
       entries: paginated_entries,
       metadata: %Metadata{
@@ -175,7 +173,6 @@ defmodule Paginator do
 
   defp fetch_cursor_value(schema, %Config{cursor_fields: cursor_fields}) do
     cursor_fields
-
     |> Enum.map(fn {binding, field} ->
       # TODO this is a not so neat way
       # First checks if the field exists in the returned schema if not, it returns
@@ -202,7 +199,7 @@ defmodule Paginator do
   defp entries(queryable, config, repo, repo_opts) do
     queryable
     |> Query.paginate(config)
-    |> IO.inspect
+
     |> repo.all(repo_opts)
 
   end
