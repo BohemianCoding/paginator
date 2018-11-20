@@ -174,12 +174,13 @@ defmodule Paginator do
     |> Enum.map(fn
       {binding, field} ->
         # TODO this is a not so neat way
-        # First checks if the field exists in the returned schema if not, it returns
-        # the field on the binding supplied. This binding needs to match the name of the related field
-        # in the schema
-        case Map.get(schema, field) do
-          nil -> Map.get(schema, binding) |> Map.get(field)
-          value -> value
+        # First checks if the binding exists in the returned schema as a relation
+        # if so, it returns the field on the binding supplied.
+        # If not it tries to get the field on the schema (i.e. when the binding refers to the from clause
+
+        case Map.get(schema, binding) do
+          nil -> Map.get(schema, field)
+          relation -> Map.get(relation, field)
         end
 
       field ->
