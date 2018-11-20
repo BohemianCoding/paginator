@@ -47,6 +47,7 @@ defmodule Paginator do
     end
   end
 
+
   @doc """
   Fetches all the results matching the query within the cursors.
 
@@ -95,6 +96,9 @@ defmodule Paginator do
     paginated_entries = paginate_entries(sorted_entries, config)
     {total_count, total_count_cap_exceeded} = total_count(queryable, config, repo, repo_opts)
 
+    IO.inspect(paginated_entries)
+    IO.inspect(sorted_entries)
+    IO.inspect(config)
     %Page{
       entries: paginated_entries,
       metadata: %Metadata{
@@ -171,7 +175,19 @@ defmodule Paginator do
 
   defp fetch_cursor_value(schema, %Config{cursor_fields: cursor_fields}) do
     cursor_fields
-    |> Enum.map(fn field -> Map.get(schema, field) end)
+
+    |> Enum.map(fn {binding, field} ->
+      # TODO this is a not so neat way
+      # First checks if the field exists in the returned schema if not, it returns
+      # the field on the binding supplied. This binding needs to match the name of the related field
+      # in the schema
+      case Map.get(schema, field) do
+        nil -> Map.get(schema, binding) |> Map.get(field)
+        value -> value
+      end
+    field -> Map.get(schema, field)
+
+    end)
     |> Cursor.encode()
   end
 
@@ -186,7 +202,9 @@ defmodule Paginator do
   defp entries(queryable, config, repo, repo_opts) do
     queryable
     |> Query.paginate(config)
+    |> IO.inspect
     |> repo.all(repo_opts)
+
   end
 
   defp total_count(_queryable, %Config{include_total_count: false}, _repo, _repo_opts),

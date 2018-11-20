@@ -7,6 +7,7 @@ defmodule PaginatorTest do
 
   setup :create_customers_and_payments
 
+
   test "paginates forward", %{
     payments: {p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12}
   } do
@@ -300,41 +301,42 @@ defmodule PaginatorTest do
   end
 
   describe "paginate a collection of payments, sorting by customer name" do
-    @tag :skip
+
     test "sorts ascending without cursors", %{
       payments: {p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12}
     } do
-      %Page{entries: entries, metadata: metadata} =
-        payments_by_customer_name()
-        |> Repo.paginate(cursor_fields: [:id], sort_direction: :asc, limit: 50)
+      %Page{entries: entries, metadata: metadata} = payments_by_customer_name() |> Repo.paginate(cursor_fields: [{:payments, :id}, {:customer, :name}], sort_direction: :asc, limit: 50)
 
       assert to_ids(entries) == to_ids([p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12])
       assert metadata == %Metadata{after: nil, before: nil, limit: 50}
     end
 
-    @tag :skip
+
     test "sorts ascending with before cursor", %{
       payments: {_p1, _p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, _p12}
     } do
-      %Page{entries: entries, metadata: metadata} =
-        payments_by_customer_name()
-        |> Repo.paginate(
-          cursor_fields: [:id],
+
+        q=payments_by_customer_name()
+        IO.inspect(Map.from_struct(q))
+        position = Map.get(q.aliases, :customer) |> IO.inspect
+        %Page{entries: entries, metadata: metadata} = q |> Repo.paginate(
+          cursor_fields: [{:payments, :id}, {:customer, :name}],
           sort_direction: :asc,
-          before: encode_cursor(p11.id),
+          before: encode_cursor([p11.id, p11.customer.name]),
           limit: 8
         )
 
       assert to_ids(entries) == to_ids([p3, p4, p5, p6, p7, p8, p9, p10])
 
+
+
       assert metadata == %Metadata{
-               after: encode_cursor(p10.id),
-               before: encode_cursor(p3.id),
+               after: encode_cursor([p10.id, p10.customer.name]),
+               before: encode_cursor([p3.id, p3.customer.name]),
                limit: 8
              }
     end
 
-    @tag :skip
     test "sorts ascending with after cursor", %{
       payments: {_p1, _p2, _p3, _p4, _p5, p6, p7, p8, p9, p10, p11, p12}
     } do
@@ -705,12 +707,16 @@ defmodule PaginatorTest do
   end
 
   defp payments_by_customer_name(direction \\ :asc) do
-    from(
+    query = from(
       p in Payment,
-      join: c in assoc(p, :customer),
-      order_by: [{^direction, c.name}, {^direction, p.id}],
+      as: :payments,
+      join: c in assoc(p, :customer), as: :customer,
+      preload: [customer: c],
       select: p
     )
+
+    query |> order_by([p, customer: c], [{^direction, c.name}, {^direction, p.id}])
+
   end
 
   defp customer_payments_by_amount(customer, direction \\ :asc) do
@@ -727,5 +733,12 @@ defmodule PaginatorTest do
 
   defp days_ago(days) do
     DT.add!(DateTime.utc_now(), -(days * 86400))
+  end
+
+  def inspect_cursor(metadata) do
+    IO.inspect(%{
+      before: Cursor.decode(metadata.before),
+      after: Cursor.decode(metadata.after)
+    })
   end
 end

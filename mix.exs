@@ -35,12 +35,13 @@ defmodule Paginator.Mixfile do
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
+  defp elixirc_paths(_), do: ["lib", "test/support"]
 
   defp deps do
     [
       {:calendar, "~> 0.17.4", only: :test},
-      {:ecto, "~> 2.0"},
+      {:ecto_sql, "~> 3.0"},
+      {:ecto, "~> 3.0", override: true},
       {:ex_doc, "~> 0.18", only: :dev, runtime: false},
       {:ex_machina, "~> 2.1", only: :test},
       {:inch_ex, "~> 1.0", only: [:dev, :test]},

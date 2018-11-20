@@ -1,0 +1,42 @@
+
+INSERT INTO "customers" ("id","active","name","inserted_at","updated_at") VALUES (1,true,'Bob',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "customers" ("id","active","name","inserted_at","updated_at") VALUES (2,true,'Alice',NOW(),NOW()) RETURNING "id"; 
+INSERT INTO "customers" ("id","active","name","inserted_at","updated_at") VALUES (3,true,'Charlie',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "addresses" ("city","customer_id") VALUES ('London',1);
+INSERT INTO "addresses" ("city","customer_id") VALUES ('New York',2) ;
+INSERT INTO "addresses" ("city","customer_id") VALUES ('Tokyo',3) ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (96,NOW(),2,'Skittles','success',NOW(),NOW()) RETURNING "id";
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (56,NOW(),2,'Skittles','success',NOW(),NOW()) RETURNING "id";
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (82,NOW(),2,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (2,NOW(),2,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (3,NOW(),1,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (2,NOW(),1,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (4,NOW(),1,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (5,NOW(),1,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (29,NOW(),3,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (15,NOW(),3,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (89,NOW(),3,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+INSERT INTO "payments" ("amount","charged_at","customer_id","description","status","inserted_at","updated_at") VALUES (4,NOW(),3,'Skittles','success',NOW(),NOW()) RETURNING "id" ;
+
+
+SELECT *
+--    p0. "id",
+--    p0. "amount",
+--    p0. "charged_at",
+--    p0. "description",
+--    p0. "status",
+--    p0. "customer_id",
+--    p0. "inserted_at",
+--    p0. "updated_at"
+FROM
+    "payments" AS p0
+    INNER JOIN "customers" AS c1 ON c1. "id" = p0. "customer_id"
+    WHERE (((p0. "id" = 11)
+            AND ((c1. "name" < 'Charlie')
+                AND true))
+        OR (((p0. "id" < 11)
+                AND true)
+            AND true))
+ORDER BY
+    c1. "name" DESC,
+    p0. "id" DESC
