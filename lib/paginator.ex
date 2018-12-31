@@ -198,9 +198,15 @@ defmodule Paginator do
   end
 
   defp entries(queryable, config, repo, repo_opts) do
+    Map.from_struct(queryable) |> IO.inspect()
+
     queryable
     |> Query.paginate(config)
     |> repo.all(repo_opts)
+  end
+
+  defp build_collection_binding(queryable) do
+    []
   end
 
   defp total_count(_queryable, %Config{include_total_count: false}, _repo, _repo_opts),

@@ -306,7 +306,7 @@ defmodule PaginatorTest do
       %Page{entries: entries, metadata: metadata} =
         payments_by_customer_name()
         |> Repo.paginate(
-          cursor_fields: [{:payments, :id}, {:customer, :name}],
+          cursor_fields: [:id, {:customer, :name}],
           sort_direction: :asc,
           limit: 50
         )
@@ -315,13 +315,14 @@ defmodule PaginatorTest do
       assert metadata == %Metadata{after: nil, before: nil, limit: 50}
     end
 
+    @tag :only
     test "sorts ascending with before cursor", %{
       payments: {_p1, _p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, _p12}
     } do
       %Page{entries: entries, metadata: metadata} =
         payments_by_customer_name()
         |> Repo.paginate(
-          cursor_fields: [{:payments, :id}, {:customer, :name}],
+          cursor_fields: [:id, {:customer, :name}],
           sort_direction: :asc,
           before: encode_cursor([p11.id, p11.customer.name]),
           limit: 8
