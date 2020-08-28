@@ -63,10 +63,16 @@ defmodule Paginator.Ecto.Query do
         dynamic =
           case get_operator_for_field(fields, bound_column, cursor_direction) do
             :lt ->
-              dynamic([{q, position}], field(q, ^column) < ^value and ^dynamic)
+              dynamic(
+                [{q, position}],
+                not is_nil(field(q, ^column)) and field(q, ^column) < ^value and ^dynamic
+              )
 
             :gt ->
-              dynamic([{q, position}], field(q, ^column) > ^value and ^dynamic)
+              dynamic(
+                [{q, position}],
+                (is_nil(field(q, ^column)) or field(q, ^column) > ^value) and ^dynamic
+              )
           end
 
         dynamic =
@@ -74,7 +80,12 @@ defmodule Paginator.Ecto.Query do
           |> Enum.take(i)
           |> Enum.reduce(dynamic, fn {prev_column, prev_value}, dynamic ->
             {position, prev_column} = column_position(query, prev_column)
-            dynamic([{q, position}], field(q, ^prev_column) == ^prev_value and ^dynamic)
+
+            dynamic(
+              [{q, position}],
+              not is_nil(field(q, ^prev_column)) and field(q, ^prev_column) == ^prev_value and
+                ^dynamic
+            )
           end)
 
         if i == 0 do
