@@ -1,0 +1,422 @@
+From 7521830dfd1ec3e192e3979e8303de06e65b7e7a Mon Sep 17 00:00:00 2001
+From: Mihai Potra <mike@mpotra.com>
+Date: Thu, 19 Sep 2019 08:28:54 +0300
+Subject: [PATCH] Allow pagination on unions and subqueries with total count
+ (#1)
+
+* Allow pagination on unions and subqueries
+
+* test: Add and update support libs
+
+* test: Add test for unions and subqueries with total count
+---
+ lib/paginator.ex               | 111 ++++++++++++++++++++++++++++-----
+ test/paginator_test.exs        |  97 +++++++++++++++++++++++++++-
+ test/support/airplane.ex       |  12 ++++
+ test/support/boat.ex           |  12 ++++
+ test/support/data_case.ex      |   2 +-
+ test/support/factory.ex        |  20 +++++-
+ test/support/test_migration.ex |  18 ++++++
+ 7 files changed, 253 insertions(+), 19 deletions(-)
+ create mode 100644 test/support/airplane.ex
+ create mode 100644 test/support/boat.ex
+
+diff --git a/lib/paginator.ex b/lib/paginator.ex
+index a787192..1a4b066 100644
+--- a/lib/paginator.ex
++++ b/lib/paginator.ex
+@@ -332,18 +332,14 @@ defmodule Paginator do
+   defp total_count(
+          queryable,
+          %Config{
+-           total_count_limit: :infinity,
+-           total_count_primary_key_field: total_count_primary_key_field
+-         },
++           total_count_limit: :infinity
++         } = config,
+          repo,
+          repo_opts
+        ) do
+     result =
+       queryable
+-      |> exclude(:preload)
+-      |> exclude(:select)
+-      |> exclude(:order_by)
+-      |> select([e], struct(e, [total_count_primary_key_field]))
++      |> prepare_query(config)
+       |> subquery
+       |> select(count("*"))
+       |> repo.one(repo_opts)
+@@ -354,20 +350,16 @@ defmodule Paginator do
+   defp total_count(
+          queryable,
+          %Config{
+-           total_count_limit: total_count_limit,
+-           total_count_primary_key_field: total_count_primary_key_field
+-         },
++           total_count_limit: total_count_limit
++         } = config,
+          repo,
+          repo_opts
+        ) do
+     result =
+       queryable
+-      |> exclude(:preload)
+-      |> exclude(:select)
+-      |> exclude(:order_by)
+-      |> limit(^(total_count_limit + 1))
+-      |> select([e], struct(e, [total_count_primary_key_field]))
++      |> prepare_query(config)
+       |> subquery
++      |> limit(^(total_count_limit + 1))
+       |> select(count("*"))
+       |> repo.one(repo_opts)
+ 
+@@ -377,6 +369,95 @@ defmodule Paginator do
+     }
+   end
+ 
++  # Prepares for count a Query that contains a SubQuery
++  # First optimize combinations (unions) and then the queryable.
++  defp prepare_query(
++         %{from: %{source: %Ecto.SubQuery{query: query} = subquery} = from} = queryable,
++         config
++       ) do
++    query =
++      query
++      |> prepare_query_combinations(config)
++      |> optimize_query_for_count(config)
++
++    subquery =
++      subquery
++      |> Map.put(:query, query)
++
++    from =
++      from
++      |> Map.put(:source, subquery)
++
++    queryable
++    |> Map.put(:from, from)
++    |> optimize_query_for_count()
++  end
++
++  # Prepare for count any other Query that does not contain a SubQuery
++  # Also optimizes the combinations (e.g. unions) in it, by removing unneeded
++  # selects.
++  defp prepare_query(queryable, config) do
++    queryable
++    |> prepare_query_combinations(config)
++    |> optimize_query_for_count(config)
++  end
++
++  # Prepare nothing for a Query with empty list of combinations
++  defp prepare_query_combinations(%{combinations: []} = query, _), do: query
++
++  # Prepare the combinations list in a Query
++  # And return the updated Query
++  defp prepare_query_combinations(%{combinations: combinations} = query, config) do
++    query
++    |> Map.put(:combinations, prepare_query_combinations(combinations, config))
++  end
++
++  # Iterates over a list of combinations and prepares each combination for count
++  defp prepare_query_combinations([combination | list], config) do
++    [
++      combination |> prepare_query_combination(config)
++      | list |> prepare_query_combinations(config)
++    ]
++  end
++
++  # On empty list, returns an empty list
++  defp prepare_query_combinations([], _), do: []
++
++  # Prepare for count a UNION ALL combination
++  defp prepare_query_combination({:union_all, query}, config),
++    do: {:union_all, optimize_query_for_count(query, config)}
++
++  # Prepare for count a UNION combination
++  defp prepare_query_combination({:union, query}, config),
++    do: {:union, optimize_query_for_count(query, config)}
++
++  # Do nothing with any other type of combination
++  defp prepare_query_combination(combination, _), do: combination
++
++  # Optimizes a Query by removing unneeded statements
++  # and selects the primary key field for count, taken from config
++  defp optimize_query_for_count(
++         queryable,
++         %Config{
++           total_count_primary_key_field: total_count_primary_key_field
++         }
++       ) do
++    queryable
++    |> optimize_query_for_count()
++    |> select([e], struct(e, [total_count_primary_key_field]))
++  end
++
++  # Optimizes a Queryable when no count primary key field is supplied
++  defp optimize_query_for_count(queryable, _), do: optimize_query_for_count(queryable)
++
++  # Excludes unneeded statements from a Queryable, for count.
++  defp optimize_query_for_count(queryable) do
++    queryable
++    |> exclude(:preload)
++    |> exclude(:select)
++    |> exclude(:order_by)
++  end
++
+   # `sorted_entries` returns (limit+1) records, so before
+   # returning the page, we want to take only the first (limit).
+   #
+diff --git a/test/paginator_test.exs b/test/paginator_test.exs
+index aff864c..621389c 100644
+--- a/test/paginator_test.exs
++++ b/test/paginator_test.exs
+@@ -6,7 +6,7 @@ defmodule PaginatorTest do
+ 
+   alias Paginator.Cursor
+ 
+-  setup :create_customers_and_payments
++  setup :create_data
+ 
+   test "paginates forward", %{
+     payments: {p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12}
+@@ -91,7 +91,7 @@ defmodule PaginatorTest do
+              }
+     end
+ 
+-    test "sorts ascending with after cursor", %{
++    test "sorts ascecreate_customers_and_paymentsnding with after cursor", %{
+       payments: {_p1, p2, p3, _p4, _p5, _p6, _p7, p8, p9, p10, p11, p12}
+     } do
+       %Page{entries: entries, metadata: metadata} =
+@@ -814,6 +814,26 @@ defmodule PaginatorTest do
+            }
+   end
+ 
++  test "paginates unions and subqueries including total count", %{
++    boats: {b1, b2, b3, b4, b5, b6},
++    airplanes: {a1, a2, a3, a4, a5}
++  } do
++    opts = [cursor_fields: [:year, :name, :type], sort_direction: :asc, limit: 4, include_total_count: true]
++
++    page = airplanes_and_boats_by_year() |> Repo.paginate(opts)
++
++    assert to_uids(page.entries) == to_uids([b1, b2, a1, a2])
++    assert page.metadata.after == encode_cursor([a2.year, a2.name, a2.type])
++
++    page = airplanes_and_boats_by_year() |> Repo.paginate(opts ++ [after: page.metadata.after])
++    assert to_uids(page.entries) == to_uids([a5, b4, b5, a4])
++    assert page.metadata.after == encode_cursor([a4.year, a4.name, a4.type])
++
++    page = airplanes_and_boats_by_year() |> Repo.paginate(opts ++ [after: page.metadata.after])
++    assert to_uids(page.entries) == to_uids([a3, b3, b6])
++    assert page.metadata.after == nil
++  end
++
+   defp to_ids(entries), do: Enum.map(entries, & &1.id)
+ 
+   defp create_customers_and_payments(_context) do
+@@ -846,6 +866,44 @@ defmodule PaginatorTest do
+      payments: {p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12}}
+   end
+ 
++  defp to_uids(entries), do: Enum.map(entries, &to_uid/1)
++  defp to_uid(%{id: id, entry_type: entry_type}), do: to_uid(id, String.to_atom(entry_type))
++  defp to_uid(%Boat{id: id}), do: to_uid(id, :boat)
++  defp to_uid(%Airplane{id: id}), do: to_uid(id, :airplane)
++  defp to_uid(%{uid: uid}), do: uid
++  defp to_uid(id, type \\ :boat) when is_integer(id) do
++    case type do
++      :boat -> "b" <> Integer.to_string(id)
++      :airplane -> "a" <> Integer.to_string(id)
++      _ -> id
++    end
++  end
++
++  defp create_boats_and_airplanes(_context) do
++    a1 = insert(:airplane, %{name: "Spitfire", year: 1936})
++    a2 = insert(:airplane, %{name: "Mitsubishi Zero", year: 1940})
++    a3 = insert(:airplane, %{name: "Yakovlev Yak-3", year: 1944})
++    a4 = insert(:airplane, %{name: "Messerschmitt Me 262", year: 1944})
++    a5 = insert(:airplane, %{name: "Grumman F6F Hellcat", year: 1942})
++
++    b1 = insert(:boat, %{name: "Black Pearl", year: 1708, type: "galleon", capacity: 250})
++    b2 = insert(:boat, %{name: "RMS Titanic", year: 1911, type: "ocean liner", capacity: 3327})
++    b3 = insert(:boat, %{name: "Oceania", year: 2003, type: "tanker", capacity: 3166353})
++    b4 = insert(:boat, %{name: "HMS Activity", year: 1942, type: "escort carrier", capacity: 10})
++    b5 = insert(:boat, %{name: "USS Activity", year: 1942, type: "battleship", capacity: 2500})
++    b6 = insert(:boat, %{name: "Severodvinsk", year: 2010, type: "nuclear submarine", capacity: 90})
++
++    {:ok,
++      boats: {b1, b2, b3, b4, b5, b6},
++      airplanes: {a1, a2, a3, a4, a5}}
++  end
++
++  defp create_data(context) do
++    {:ok, payments_and_customers} = create_customers_and_payments(context)
++    {:ok, boats_and_airplanes} = create_boats_and_airplanes(context)
++    {:ok, payments_and_customers ++ boats_and_airplanes}
++  end
++
+   defp payments_by_status(status, direction \\ :asc) do
+     from(
+       p in Payment,
+@@ -915,6 +973,41 @@ defmodule PaginatorTest do
+     )
+   end
+ 
++  defp boats_struct_query() do
++    from(
++      b in Boat,
++      select: %{
++        id: b.id,
++        name: b.name,
++        type: b.type,
++        year: b.year,
++        entry_type: fragment("'boat'")
++      }
++    )
++  end
++
++  defp airplanes_struct_query() do
++    from(
++      a in Airplane,
++      select: %{
++        id: a.id,
++        name: a.name,
++        type: a.type,
++        year: a.year,
++        entry_type: fragment("'airplane'")
++      }
++    )
++  end
++
++  defp airplanes_and_boats_by_year() do
++    boats_query = boats_struct_query()
++
++    airplanes_struct_query()
++      |> union_all(^boats_query)
++      |> subquery()
++      |> order_by([:year, :name, :type])
++  end
++
+   defp encode_cursor(value) do
+     Cursor.encode(value)
+   end
+diff --git a/test/support/airplane.ex b/test/support/airplane.ex
+new file mode 100644
+index 0000000..4fb894c
+--- /dev/null
++++ b/test/support/airplane.ex
+@@ -0,0 +1,12 @@
++defmodule Paginator.Airplane do
++  use Ecto.Schema
++
++  schema "airplanes" do
++    field(:name, :string)
++    field(:year, :integer)
++    field(:type, :string)
++    field(:seats, :integer)
++
++    timestamps()
++  end
++end
+diff --git a/test/support/boat.ex b/test/support/boat.ex
+new file mode 100644
+index 0000000..f81c7bf
+--- /dev/null
++++ b/test/support/boat.ex
+@@ -0,0 +1,12 @@
++defmodule Paginator.Boat do
++  use Ecto.Schema
++
++  schema "boats" do
++    field(:name, :string)
++    field(:year, :integer)
++    field(:type, :string)
++    field(:capacity, :integer)
++
++    timestamps()
++  end
++end
+diff --git a/test/support/data_case.ex b/test/support/data_case.ex
+index 156305a..7dd08e9 100644
+--- a/test/support/data_case.ex
++++ b/test/support/data_case.ex
+@@ -10,7 +10,7 @@ defmodule Paginator.DataCase do
+       import Paginator.Factory
+ 
+       alias Paginator.{Page, Page.Metadata}
+-      alias Paginator.{Customer, Address, Payment}
++      alias Paginator.{Customer, Address, Payment, Boat, Airplane}
+     end
+   end
+ 
+diff --git a/test/support/factory.ex b/test/support/factory.ex
+index 35e714e..d261159 100644
+--- a/test/support/factory.ex
++++ b/test/support/factory.ex
+@@ -1,7 +1,7 @@
+ defmodule Paginator.Factory do
+   use ExMachina.Ecto, repo: Paginator.Repo
+ 
+-  alias Paginator.{Customer, Address, Payment}
++  alias Paginator.{Customer, Address, Payment, Boat, Airplane}
+ 
+   def customer_factory do
+     %Customer{
+@@ -27,4 +27,22 @@ defmodule Paginator.Factory do
+       customer: build(:customer)
+     }
+   end
++
++  def boat_factory do
++    %Boat{
++      name: "My Boat",
++      year: 2019,
++      type: "Sloop",
++      capacity: 1
++    }
++  end
++
++  def airplane_factory do
++    %Airplane{
++      name: "Spitfire",
++      year: 1936,
++      type: "Fighter",
++      seats: 1
++    }
++  end
+ end
+diff --git a/test/support/test_migration.ex b/test/support/test_migration.ex
+index 761a79f..23eeaba 100644
+--- a/test/support/test_migration.ex
++++ b/test/support/test_migration.ex
+@@ -25,5 +25,23 @@ defmodule Paginator.TestMigration do
+ 
+       add(:customer_id, references(:customers))
+     end
++
++    create table(:boats) do
++      add(:name, :string)
++      add(:year, :integer)
++      add(:type, :string)
++      add(:capacity, :integer)
++
++      timestamps()
++    end
++
++    create table(:airplanes) do
++      add(:name, :string)
++      add(:year, :integer)
++      add(:type, :string)
++      add(:seats, :integer)
++
++      timestamps()
++    end
+   end
+ end
+-- 
+2.25.1
+
